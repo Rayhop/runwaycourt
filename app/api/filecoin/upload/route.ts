@@ -18,8 +18,11 @@ import { isServerSupabaseConfigured } from "@/lib/supabase/server"
  */
 
 export const dynamic = "force-dynamic"
-// Storing to a provider and waiting for the data set can take a while.
-export const maxDuration = 300
+// Storing to a provider and waiting for the data set takes a while, so ask for
+// the longest run this plan allows. 60s is the Hobby ceiling -- Vercel REJECTS a
+// deployment that requests more than the plan permits, so raise this to 300 only
+// once you are on Pro. Large uploads may time out at 60s.
+export const maxDuration = 60
 
 const PRIORITIES: FilePriority[] = ["critical", "normal", "archive", "junk"]
 
