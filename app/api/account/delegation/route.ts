@@ -58,8 +58,17 @@ export async function GET() {
     // was recorded but never mined looks like.
     const onchainPermissions = await readOnchainPermissions(user!.id, scope.walletAddress)
 
+    const chains = await import("@filoz/synapse-core/chains")
+    const chain =
+      (process.env.FILECOIN_NETWORK ?? "calibration") === "mainnet"
+        ? chains.mainnet
+        : chains.calibration
+
     return NextResponse.json({
       walletAddress: scope.walletAddress,
+      // The chain the SERVER reads. The browser must authorise on this one, not
+      // on whatever network the wallet happens to have selected.
+      chainId: chain.id,
       // What the user should authorise. Shown before they sign.
       signerAddress: scope.proposedSessionAddress,
       unavailable: scope.delegationUnavailable,

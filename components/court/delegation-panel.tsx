@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { KeyRound, Loader2, ShieldCheck, ShieldOff } from "lucide-react"
 
+import { connect, getEthereum, requireChain, waitForReceipt } from "@/lib/wallet"
+
 /**
  * The leash.
  *
@@ -14,6 +16,7 @@ import { KeyRound, Loader2, ShieldCheck, ShieldOff } from "lucide-react"
 
 interface Delegation {
   walletAddress: string | null
+  chainId: number
   signerAddress: string | null
   unavailable: string | null
   permissions: string[]
@@ -33,39 +36,6 @@ interface Delegation {
 function short(address: string | null): string {
   if (!address) return "—"
   return `${address.slice(0, 6)}…${address.slice(-4)}`
-}
-
-/**
- * Block until a transaction is mined, then insist it succeeded.
- *
- * A reverted or dropped authorisation must not be recorded as a grant: the
- * database would claim an authority the chain never gave, and every later
- * upload would fail somewhere far less obvious than here.
- */
-async function waitForReceipt(ethereum: any, txHash: string, timeoutMs = 3 * 60_000) {
-  const deadline = Date.now() + timeoutMs
-
-  while (Date.now() < deadline) {
-    const receipt = (await ethereum.request({
-      method: "eth_getTransactionReceipt",
-      params: [txHash],
-    })) as { status?: string } | null
-
-    if (receipt) {
-      // Filecoin returns 0x1 for success, 0x0 for a revert.
-      if (receipt.status === "0x0") {
-        throw new Error("The authorisation transaction reverted on chain.")
-      }
-      return
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 3_000))
-  }
-
-  throw new Error(
-    "The authorisation is taking unusually long to confirm. It may still land -- " +
-      "reload this panel in a minute rather than signing again.",
-  )
 }
 
 export function DelegationPanel({ onChanged }: { onChanged: () => void }) {
@@ -95,10 +65,12 @@ export function DelegationPanel({ onChanged }: { onChanged: () => void }) {
     setError(null)
 
     try {
-      const ethereum = (window as { ethereum?: any }).ethereum
-      if (!ethereum) throw new Error("No wallet found in this browser.")
+      const ethereum = getEthereum()
+      const from = await connect(ethereum)
 
-      const [from] = (await ethereum.request({ method: "eth_requestAccounts" })) as string[]
+      // Authorise on the chain the SERVER reads. Signing on whatever network
+      // the wallet had selected produces a grant the app can never see.
+      await requireChain(ethereum, state.chainId)
 
       const expiresAt = new Date(Date.now() + state.defaultGrantDays * 86_400_000)
 
@@ -109,8 +81,7 @@ export function DelegationPanel({ onChanged }: { onChanged: () => void }) {
         import("@filoz/synapse-core/session-key"),
       ])
 
-      const chainIdHex = (await ethereum.request({ method: "eth_chainId" })) as string
-      const chain = Number(chainIdHex) === mainnet.id ? mainnet : calibration
+      const chain = state.chainId === mainnet.id ? mainnet : calibration
 
       const permissions = [
         permissionsMod.TerminateServicePermission,

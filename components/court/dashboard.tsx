@@ -6,6 +6,7 @@ import type { CourtPreview } from "@/lib/court/preview"
 import { CaseLogPanel, type CaseLogSession } from "./case-log-panel"
 import { CourtroomPanel } from "./courtroom-panel"
 import { DelegationPanel } from "./delegation-panel"
+import { FundingPanel } from "./funding-panel"
 import { UploadPanel } from "./upload-panel"
 import { VitalsPanel } from "./vitals-panel"
 import { WalletPanel } from "./wallet-panel"
@@ -159,7 +160,10 @@ export function CourtDashboard({
       <VitalsPanel preview={preview} loading={loading} />
 
       {isWalletMode && !preview?.needsWallet ? (
-        <DelegationPanel onChanged={() => void refresh()} />
+        <>
+          <FundingPanel onChanged={() => void refresh()} />
+          <DelegationPanel onChanged={() => void refresh()} />
+        </>
       ) : null}
 
       {canUpload ? <UploadPanel onUploaded={() => void refresh()} /> : null}
