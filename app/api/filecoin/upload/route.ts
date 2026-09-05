@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server"
 
 import { getConfiguredKind } from "@/lib/filecoin"
-import { hasWallet } from "@/lib/filecoin/synapse-client"
+import {
+  DelegationInactiveError,
+  SignerOutOfGasError,
+  WalletNotLinkedError,
+  hasDelegationSecret,
+} from "@/lib/filecoin/synapse-client"
 import { uploadAndEnrol } from "@/lib/filecoin/upload"
 import type { FilePriority } from "@/lib/supabase/types"
 import { getCurrentUser } from "@/lib/supabase/auth"
@@ -58,11 +63,15 @@ export async function POST(request: Request) {
     )
   }
 
-  if (!hasWallet()) {
+  // Uploads are signed by the user's delegated session key, so what the server
+  // needs is the secret it derives that key from -- not its own wallet.
+  if (!hasDelegationSecret()) {
     return NextResponse.json(
       {
-        error: "no_wallet",
-        message: "FILECOIN_PRIVATE_KEY is not set, so nothing can be stored.",
+        error: "no_delegation_secret",
+        message:
+          "RUNWAYCOURT_SESSION_SECRET is not set, so no agent signer can be " +
+          "derived and nothing can be stored.",
       },
       { status: 409 },
     )
@@ -121,11 +130,33 @@ export async function POST(request: Request) {
 
     return NextResponse.json(outcome)
   } catch (error) {
+    // Both mean "you have not finished setting up", not "the upload broke".
+    if (error instanceof WalletNotLinkedError) {
+      return NextResponse.json({ error: "no_wallet", message: error.message }, { status: 409 })
+    }
+    if (error instanceof DelegationInactiveError) {
+      return NextResponse.json(
+        { error: "delegation_inactive", message: error.message },
+        { status: 409 },
+      )
+    }
+    if (error instanceof SignerOutOfGasError) {
+      return NextResponse.json(
+        { error: "signer_out_of_gas", message: error.message },
+        { status: 409 },
+      )
+    }
+
     const message = error instanceof Error ? error.message : "Upload failed."
 
-    // The most common first-run failure is an un-onboarded account.
-    const hint = /allowance|insufficient|approve/i.test(message)
-      ? " Run `npm run setup:filecoin -- --apply` to deposit USDFC and approve FWSS."
+    // The most common first-run failure is a payer that was never funded.
+    // Name the payer: it is the LINKED WALLET, so pointing at setup:filecoin
+    // only helps when that wallet happens to be FILECOIN_PRIVATE_KEY's.
+    const hint = /allowance|insufficient|approve|lockup/i.test(message)
+      ? " Filecoin Pay bills your linked wallet, which has no USDFC deposited " +
+        "or has not approved FWSS. Deposit and approve from that wallet -- or, " +
+        "if it is the same wallet as FILECOIN_PRIVATE_KEY, run " +
+        "`npm run setup:filecoin -- --apply`."
       : ""
 
     return NextResponse.json(

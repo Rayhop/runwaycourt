@@ -2,7 +2,7 @@ import { CourtBackground } from "@/components/court/court-background"
 import { CourtDashboard } from "@/components/court/dashboard"
 import { SignIn } from "@/components/court/sign-in"
 import { getConfiguredKind } from "@/lib/filecoin"
-import { hasWallet } from "@/lib/filecoin/synapse-client"
+import { hasDelegationSecret } from "@/lib/filecoin/synapse-client"
 import { getCurrentUser } from "@/lib/supabase/auth"
 import { isServerSupabaseConfigured } from "@/lib/supabase/server"
 
@@ -18,7 +18,9 @@ export default async function Home({
   const user = configured ? await getCurrentUser() : null
   const authError = (await searchParams)?.auth_error ?? null
 
-  const canUpload = chain === "synapse" && hasWallet()
+  // Uploads are signed by a derived session key, so this is the server-side
+  // prerequisite. Having a wallet linked is checked per-user, further in.
+  const canUpload = chain === "synapse" && hasDelegationSecret()
   const identity =
     user?.user_metadata?.custom_claims?.address ??
     user?.email ??

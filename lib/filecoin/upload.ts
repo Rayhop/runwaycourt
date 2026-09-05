@@ -1,8 +1,10 @@
 import "server-only"
 
+import { getScope } from "@/lib/court/scope"
 import { getServiceClient } from "@/lib/supabase/server"
 import type { FilePriority } from "@/lib/supabase/types"
-import { getSynapse } from "./synapse-client"
+import { ESSENTIAL_UPLOAD_PERMISSIONS } from "./session-key"
+import { DelegationInactiveError, WalletNotLinkedError, getSynapse } from "./synapse-client"
 
 /**
  * Store a file on Filecoin Warm Storage and enrol it in the court.
@@ -34,9 +36,37 @@ export async function uploadAndEnrol(params: {
 }): Promise<UploadOutcome> {
   const { userId, name, data, priority = "normal" } = params
 
-  // Signed by this user's delegated key, so the data set is created under
-  // their account and paid for from their balance -- not the server's.
-  const synapse = await getSynapse(userId)
+  // Signed by this user's delegated key, but BILLED to their linked wallet --
+  // the session key is a signer, never a funding source. Check both up front:
+  // failing here says what to fix, where failing on chain says
+  // InsufficientLockupFunds against an address the user has never seen.
+  const scope = await getScope(userId)
+  if (!scope.walletAddress) throw new WalletNotLinkedError()
+
+  if (!scope.grant.active) {
+    throw new DelegationInactiveError(
+      scope.grant.expiresAt
+        ? `The agent's authority expired on ${scope.grant.expiresAt.toISOString()}. ` +
+          "Re-authorise it to store files."
+        : "The agent has no authority to store files yet. Grant it from the dashboard.",
+    )
+  }
+
+  const missing = ESSENTIAL_UPLOAD_PERMISSIONS.filter(
+    (permission) => !scope.grant.permissions.includes(permission),
+  )
+  if (missing.length > 0) {
+    throw new DelegationInactiveError(
+      `The agent was not granted ${missing.join(" and ")}, so it cannot store files. ` +
+        "Re-authorise it with the full set of court permissions.",
+    )
+  }
+
+  const synapse = await getSynapse({
+    userId,
+    walletAddress: scope.walletAddress,
+    permissions: ESSENTIAL_UPLOAD_PERMISSIONS,
+  })
 
   // 1. Store it. This creates or reuses a data set and opens the rails.
   const result = await synapse.storage.upload(data)

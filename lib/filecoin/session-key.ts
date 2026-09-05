@@ -53,6 +53,14 @@ export const COURT_PERMISSIONS: PermissionName[] = [
 /** The single permission without which the court cannot act at all. */
 export const ESSENTIAL_PERMISSION: PermissionName = "TerminateService"
 
+/**
+ * What storing a file needs. Kept narrow deliberately: Synapse.create()
+ * rejects the whole call if any permission it is told to require is missing,
+ * so demanding TerminateService here would block an upload over authority the
+ * upload never uses.
+ */
+export const ESSENTIAL_UPLOAD_PERMISSIONS: PermissionName[] = ["CreateDataSet", "AddPieces"]
+
 /** Default grant length. Short enough to be a real limit, long enough to demo. */
 export const DEFAULT_GRANT_DAYS = 30
 
