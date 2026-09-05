@@ -91,20 +91,6 @@ export class DelegationInactiveError extends Error {
   }
 }
 
-export class SignerOutOfGasError extends Error {
-  constructor(address: string, network: string) {
-    super(
-      `The agent's signer (${address}) has no ${network === "mainnet" ? "FIL" : "tFIL"} for ` +
-        "gas. It broadcasts the storage transactions, so it needs a small gas " +
-        "balance even though your linked wallet pays for the storage itself." +
-        (network === "mainnet"
-          ? ""
-          : " Fund it at https://faucet.calibnet.chainsafe-fil.io/"),
-    )
-    this.name = "SignerOutOfGasError"
-  }
-}
-
 /** True when the server can derive a signer for a user's delegation. */
 export function hasDelegationSecret(): boolean {
   return Boolean(process.env.RUNWAYCOURT_SESSION_SECRET)
@@ -192,13 +178,11 @@ async function create(
     )
   }
 
-  // The session key signs AND broadcasts, so it pays gas out of its own
-  // balance. Nothing in the app ever funds it, so check before the SDK fails
-  // with a revert that reads like a permissions or funding problem instead.
-  const readClient = viem.createPublicClient({ chain, transport })
-  const gas = await readClient.getBalance({ address: sessionKey.address })
-  if (gas === 0n) throw new SignerOutOfGasError(sessionKey.address, network)
-
+  // No gas check here on purpose: on the upload path the session key only
+  // SIGNS (EIP-712 createDataSetAndAddPieces). The SDK then POSTs that
+  // signature to the storage provider, which broadcasts and pays the gas. A
+  // zero-balance signer uploads fine. Sending transactions directly -- as
+  // terminateService does in synapse.ts -- is the case that needs gas.
   const required = await resolvePermissions(permissions)
 
   try {

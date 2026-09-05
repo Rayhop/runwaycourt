@@ -3,7 +3,6 @@ import { NextResponse } from "next/server"
 import { getConfiguredKind } from "@/lib/filecoin"
 import {
   DelegationInactiveError,
-  SignerOutOfGasError,
   WalletNotLinkedError,
   hasDelegationSecret,
 } from "@/lib/filecoin/synapse-client"
@@ -137,12 +136,6 @@ export async function POST(request: Request) {
     if (error instanceof DelegationInactiveError) {
       return NextResponse.json(
         { error: "delegation_inactive", message: error.message },
-        { status: 409 },
-      )
-    }
-    if (error instanceof SignerOutOfGasError) {
-      return NextResponse.json(
-        { error: "signer_out_of_gas", message: error.message },
         { status: 409 },
       )
     }
