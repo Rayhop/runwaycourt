@@ -121,6 +121,48 @@ export async function resolvePermissions(names: PermissionName[]): Promise<Hex[]
   return names.map((name) => lookup[name]).filter(Boolean)
 }
 
+/**
+ * What the CHAIN says this user's signer may do.
+ *
+ * readGrant() below reports what our database recorded, which is a hint, not a
+ * fact: a login() transaction can be recorded and then never mine. Anything
+ * that decides whether the agent can actually act should ask this instead.
+ *
+ * Returns an empty list when no wallet is linked or the registry cannot be
+ * read -- callers treat that as "no authority", which is the safe reading.
+ */
+export async function readOnchainPermissions(
+  userId: string,
+  walletAddress: string | null,
+): Promise<PermissionName[]> {
+  if (!walletAddress) return []
+
+  try {
+    const [{ fromSecp256k1 }, chains, { http }] = await Promise.all([
+      import("@filoz/synapse-core/session-key"),
+      import("@filoz/synapse-core/chains"),
+      import("viem"),
+    ])
+
+    const network = process.env.FILECOIN_NETWORK ?? "calibration"
+    const chain = network === "mainnet" ? chains.mainnet : chains.calibration
+    const rpcUrl = process.env.FILECOIN_RPC_URL
+
+    const sessionKey = fromSecp256k1({
+      privateKey: deriveSessionPrivateKey(userId),
+      root: walletAddress as `0x${string}`,
+      chain,
+      transport: rpcUrl ? http(rpcUrl) : http(),
+    })
+    await sessionKey.syncExpirations()
+
+    const hashes = await resolvePermissions(COURT_PERMISSIONS)
+    return COURT_PERMISSIONS.filter((_, index) => sessionKey.hasPermission(hashes[index]))
+  } catch {
+    return []
+  }
+}
+
 export interface GrantState {
   address: Address | null
   expiresAt: Date | null

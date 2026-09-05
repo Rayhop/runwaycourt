@@ -208,6 +208,8 @@ app/api/
   court/session/         POST convene (force, or no-op above threshold)
   case-log/              GET past sessions + verdicts
   files/access/          POST record a retrieval
+  filecoin/upload/       POST start an upload (returns a job, does not block)
+  filecoin/upload/status GET  advance that job one step until it confirms
 supabase/
   migrations/0001_init.sql
   seed.sql

@@ -22,7 +22,11 @@ interface Delegation {
     address: string | null
     expiresAt: string | null
     permissions: string[]
+    /** What the CHAIN says. This is the one that decides whether uploads work. */
     active: boolean
+    /** What our database recorded. Diverges when a login() never mined. */
+    recorded: boolean
+    onchainPermissions: string[]
   }
 }
 
@@ -31,10 +35,44 @@ function short(address: string | null): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`
 }
 
+/**
+ * Block until a transaction is mined, then insist it succeeded.
+ *
+ * A reverted or dropped authorisation must not be recorded as a grant: the
+ * database would claim an authority the chain never gave, and every later
+ * upload would fail somewhere far less obvious than here.
+ */
+async function waitForReceipt(ethereum: any, txHash: string, timeoutMs = 3 * 60_000) {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const receipt = (await ethereum.request({
+      method: "eth_getTransactionReceipt",
+      params: [txHash],
+    })) as { status?: string } | null
+
+    if (receipt) {
+      // Filecoin returns 0x1 for success, 0x0 for a revert.
+      if (receipt.status === "0x0") {
+        throw new Error("The authorisation transaction reverted on chain.")
+      }
+      return
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 3_000))
+  }
+
+  throw new Error(
+    "The authorisation is taking unusually long to confirm. It may still land -- " +
+      "reload this panel in a minute rather than signing again.",
+  )
+}
+
 export function DelegationPanel({ onChanged }: { onChanged: () => void }) {
   const [state, setState] = useState<Delegation | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -100,6 +138,13 @@ export function DelegationPanel({ onChanged }: { onChanged: () => void }) {
         params: [{ from, to: call.address, data }],
       })) as string
 
+      // eth_sendTransaction returns as soon as the tx is BROADCAST, not when it
+      // is mined. Recording the grant here would let the database claim an
+      // authority the chain has never granted -- and the upload would then fail
+      // deep inside the SDK instead of here. So wait for the receipt.
+      setStatus("Waiting for the authorisation to confirm on chain…")
+      await waitForReceipt(ethereum, txHash)
+
       const response = await fetch("/api/account/delegation", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -120,6 +165,7 @@ export function DelegationPanel({ onChanged }: { onChanged: () => void }) {
       setError(cause instanceof Error ? cause.message : "Delegation failed.")
     } finally {
       setBusy(false)
+      setStatus(null)
     }
   }
 
@@ -186,6 +232,22 @@ export function DelegationPanel({ onChanged }: { onChanged: () => void }) {
         <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
           Delegation unavailable: {state.unavailable}
         </div>
+      ) : null}
+
+      {state?.grant.recorded && !state.grant.active ? (
+        <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+          This account has a grant on record, but the registry shows no live
+          authority for its signer. The authorising transaction never confirmed —
+          grant it again. Each signed-in account has its own signer, so a grant made
+          from another account does not carry over.
+        </div>
+      ) : null}
+
+      {status ? (
+        <p className="mt-3 flex items-center gap-2 text-xs text-white/50">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          {status}
+        </p>
       ) : null}
 
       {error ? (

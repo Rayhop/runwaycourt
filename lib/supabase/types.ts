@@ -51,6 +51,29 @@ export interface FileRow {
   synced_at: string | null
 }
 
+/** Progress of one asynchronous upload. See 0005_upload_jobs.sql. */
+export type UploadJobState = "committing" | "confirming" | "done" | "failed"
+
+export interface UploadJobRow {
+  id: string
+  user_id: string
+  name: string
+  priority: FilePriority
+  size_bytes: number
+  state: UploadJobState
+  piece_cid: string | null
+  provider: string | null
+  service_url: string | null
+  status_url: string | null
+  tx_hash: string | null
+  data_set_id: string | null
+  added_to_existing: boolean
+  file_id: string | null
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface AccessEventRow {
   id: number
   file_id: string

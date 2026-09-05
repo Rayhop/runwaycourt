@@ -185,6 +185,22 @@ async function create(
   // terminateService does in synapse.ts -- is the case that needs gas.
   const required = await resolvePermissions(permissions)
 
+  // Check the chain ourselves before Synapse.create does, so a missing grant
+  // reads as "authorise the agent" rather than as the SDK's paragraph about
+  // requiredPermissions. Our database can say a grant exists when the chain
+  // disagrees -- a login() transaction that was recorded but never mined, say
+  // -- and the chain is the only authority that matters here.
+  const missing = permissions.filter((name, index) => !sessionKey.hasPermission(required[index]))
+  if (missing.length > 0) {
+    throw new DelegationInactiveError(
+      `The agent's signer for this account (${sessionKey.address}) is not authorised ` +
+        `on chain for ${missing.join(" and ")}. Grant the delegation from the ` +
+        "dashboard and wait for that transaction to confirm before uploading. " +
+        "Note each signed-in account gets its own signer, so a grant made from a " +
+        "different account does not carry over.",
+    )
+  }
+
   try {
     return Synapse.create({
       // The payer. NOT the session key -- see the note at the top of this file.

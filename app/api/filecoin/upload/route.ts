@@ -6,26 +6,25 @@ import {
   WalletNotLinkedError,
   hasDelegationSecret,
 } from "@/lib/filecoin/synapse-client"
-import { uploadAndEnrol } from "@/lib/filecoin/upload"
+import { startUpload } from "@/lib/filecoin/upload"
 import type { FilePriority } from "@/lib/supabase/types"
 import { getCurrentUser } from "@/lib/supabase/auth"
 import { isServerSupabaseConfigured } from "@/lib/supabase/server"
 
 /**
- * Store a file on Filecoin Warm Storage and put it on trial.
+ * Start storing a file on Filecoin Warm Storage.
  *
  * POST multipart/form-data: file=<blob>, priority=critical|normal|archive|junk
+ * -> 202 { jobId, state: "confirming", ... }
  *
- * This is the judge-facing path: drop a file in the dashboard, watch it get a
- * real piece CID and data set, then watch the court decide whether to keep
- * paying for it.
+ * This returns as soon as the bytes are with the storage provider and the
+ * commit is submitted -- it does NOT wait for the chain. Confirming takes about
+ * a minute more, which is longer than a serverless request may run, so the
+ * client polls ./upload/status from here.
  */
 
 export const dynamic = "force-dynamic"
-// Storing to a provider and waiting for the data set takes a while, so ask for
-// the longest run this plan allows. 60s is the Hobby ceiling -- Vercel REJECTS a
-// deployment that requests more than the plan permits, so raise this to 300 only
-// once you are on Pro. Large uploads may time out at 60s.
+// Only has to cover pushing the bytes and one submit, not the chain wait.
 export const maxDuration = 60
 
 const PRIORITIES: FilePriority[] = ["critical", "normal", "archive", "junk"]
@@ -120,14 +119,14 @@ export async function POST(request: Request) {
     : "normal"
 
   try {
-    const outcome = await uploadAndEnrol({
+    const progress = await startUpload({
       userId: user.id,
       name: file.name || "upload.bin",
       data: new Uint8Array(await file.arrayBuffer()),
       priority,
     })
 
-    return NextResponse.json(outcome)
+    return NextResponse.json(progress, { status: 202 })
   } catch (error) {
     // Both mean "you have not finished setting up", not "the upload broke".
     if (error instanceof WalletNotLinkedError) {

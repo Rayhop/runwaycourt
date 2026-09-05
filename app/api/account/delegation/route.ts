@@ -5,6 +5,7 @@ import {
   COURT_PERMISSIONS,
   DEFAULT_GRANT_DAYS,
   deriveSessionAddress,
+  readOnchainPermissions,
 } from "@/lib/filecoin/session-key"
 import { getCurrentUser } from "@/lib/supabase/auth"
 import { getServiceClient, isServerSupabaseConfigured } from "@/lib/supabase/server"
@@ -51,6 +52,12 @@ export async function GET() {
   try {
     const scope = await getScope(user!.id)
 
+    // The database only records what we were TOLD was authorised. Ask the
+    // registry what is actually live, so the panel cannot show a grant the
+    // chain has never seen -- which is exactly what a login() transaction that
+    // was recorded but never mined looks like.
+    const onchainPermissions = await readOnchainPermissions(user!.id, scope.walletAddress)
+
     return NextResponse.json({
       walletAddress: scope.walletAddress,
       // What the user should authorise. Shown before they sign.
@@ -62,7 +69,10 @@ export async function GET() {
         address: scope.grant.address,
         expiresAt: scope.grant.expiresAt?.toISOString() ?? null,
         permissions: scope.grant.permissions,
-        active: scope.grant.active,
+        // Authority is what the chain says, not what we recorded.
+        active: onchainPermissions.length > 0,
+        recorded: scope.grant.active,
+        onchainPermissions,
       },
     })
   } catch (error) {
